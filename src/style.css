@@ -1,5 +1,18 @@
+@font-face {
+  font-family: "albb";
+  font-weight: 400;
+  src: url("./assets/albbFont/AlimamaDongFangDaKai-Regular.ttf") format("ttf"),
+  url("./assets/albbFont/AlimamaDongFangDaKai-Regular.otf") format("otf"),
+  url("./assets/albbFont/AlimamaDongFangDaKai-Regular.woff2") format("woff2"),
+  url("//at.alicdn.com/wf/webfont/St2m5dqkqXSu/zCHdP0XDDom9.woff") format("woff");
+  font-display: swap;
+}
+
+
+
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: albb, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 

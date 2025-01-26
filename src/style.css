@@ -1,6 +1,5 @@
 @font-face {
   font-family: "albb";
-  font-weight: 400;
   src: url("./assets/albbFont/AlimamaDongFangDaKai-Regular.ttf") format("ttf"),
   url("./assets/albbFont/AlimamaDongFangDaKai-Regular.otf") format("otf"),
   url("./assets/albbFont/AlimamaDongFangDaKai-Regular.woff2") format("woff2"),
@@ -37,10 +36,13 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  padding: 0;
+}
+
+div {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -72,10 +74,8 @@ button:focus-visible {
 }
 
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  margin: 0;
+  padding: 0;
 }
 
 @media (prefers-color-scheme: light) {

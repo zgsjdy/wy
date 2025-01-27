@@ -16,7 +16,7 @@ const routes: Array<RouteRecordRaw> = [
     },
     {
         path: "/Home2",
-        name: "home2",
+        name: "hometo",
         component: () => import("../views/hfgvjlhfsdjgv.vue"), // 懒加载组件
         props: true // 将路由参数作为 props 传递
     },

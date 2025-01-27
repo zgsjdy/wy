@@ -34,7 +34,7 @@ const modifyContent = (index: number) => {
   }
 
   // 路由跳转
-  let name = index === 0 ? 'Home' : 'home2';
+  let name = index === 0 ? 'Home' : 'hometo';
   router.push({ 
     name: name,
   });

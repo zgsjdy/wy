@@ -6,7 +6,11 @@
 </template>
 
 <script setup lang="ts">
-
+    fetch('http://localhost:3001/api/data').then(res => {
+        return res.text()
+    }).then(data => {
+        console.log(data)
+    })
 </script>
 
 <style scoped lang="scss">

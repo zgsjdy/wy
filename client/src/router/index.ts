@@ -11,13 +11,13 @@ const routes: Array<RouteRecordRaw> = [
     {
         path: "/Home",
         name: "Home",
-        component: () => import("../views/home.vue"), // 懒加载组件
+        component: () => import("../views/uploadLargeFiles.vue"), // 懒加载组件
         props: true // 将路由参数作为 props 传递
     },
     {
         path: "/Home2",
         name: "hometo",
-        component: () => import("../views/uploadLargeFiles.vue"), // 懒加载组件
+        component: () => import("../views/home.vue"), // 懒加载组件
         props: true // 将路由参数作为 props 传递
     },
     {

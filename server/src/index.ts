@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
 import dataRoutes from './routes/dataRoutes';
 import fileRoutes from './routes/fileRoutes';
 
@@ -16,8 +15,8 @@ app.use('/api', dataRoutes);
 // 使用文件路由
 app.use('/', fileRoutes);
 
-// 提供静态文件服务,匹配路由失败返回的静态资源
-app.use(express.static(path.join(__dirname, '../public/dist')));
+// 提供静态文件服务,匹配路由失败返回的静态资源,已在文件路由中设置了
+// app.use(express.static(path.join(__dirname, '../public/dist')));
 
 
 

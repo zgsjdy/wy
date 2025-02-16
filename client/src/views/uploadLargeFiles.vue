@@ -1,6 +1,6 @@
 <template>
   <div class="upload-container">
-    <h2>大文件,动态多线程，动态多并发，断网继传<span class="animLoad" v-if="!!Load">{{ Load }}</span></h2>
+    <h2>大文件,动态多线程分片，多并发，断网继传，多文件，上传<span class="animLoad" v-if="!!Load">{{ Load }}</span></h2>
     <!-- 拖拽区域 -->
     <div class="drop-zone" @dragover.prevent @drop="handleDrop" :class="disabled">
       <p class="drop-zone-text">将文件拖拽到此处上传或者点击上传（当前总文件数量：{{ P.uploadData.length }}）</p>
@@ -38,6 +38,8 @@ import { cutFile } from '../utils/cutFile'; // 引入文件切片函数
 import axios from 'axios'; // 引入 axios
 import { useStore } from '../stores/counter'; // 引入 pinia store
 const P = useStore(); // 使用 pinia store
+import { antiShake } from '../utils/antiShake';  // 引入公共防抖函数
+
 
 
 // 是否开启禁用上传状态展示区域
@@ -98,10 +100,39 @@ const handleDrop = (event: DragEvent) => {
   }
 };
 
+
+let map:Array<{
+  name:string,
+  index:number,
+  hash:string
+}> = [];  //记录上传任务
+
+// 防抖函数，注意这个函数用到了全局变量
+const pauseUp = antiShake((index: number,thread:number) => {
+    if(!P.uploadData[index].paused){
+    // 这里可以把前端记录的最后一次记录发请求给后端对比最后一个哈希值，对的上就继续上传，对不上服务器返回该文件的最后一个分片参数等等，要是没有重新上传该文件
+    // 略...这里就不发请求了，前端记录的一般不会错，有时间在把这个补上
+    
+    // 判断对象有没有值
+    if(map[index]){
+      // 解构map
+      const mapObj:{name:string,index:number,hash:string} = map[index];
+      const { name, index:subscript, hash } = mapObj;
+
+      uploadShards(resUploadData[index],index,subscript+1,thread); //加一是跳过已经上传的分片
+      // console.log("暂停的map",subscript+1,hash,name,map)
+    }else{
+      uploadShards(resUploadData[index],index,0,thread); // 继续上传
+    }
+  }
+  },300);
+
 // 暂停上传
 const pauseUpload = (index: number) => {
   P.uploadData[index].paused = !P.uploadData[index].paused;
   P.uploadData[index].status = P.uploadData[index].paused ? 'paused' : 'uploading';
+  
+  pauseUp(index,2);
 };
 
 // 取消上传
@@ -116,67 +147,129 @@ const cancelUpload = (index: number) => {
 // 监听网络状态
 const handleOnline = () => {
   alert('已经恢复！');
+  // 把所有文件上传修改为继续
+  P.uploadData.forEach((task,index) => {
+    if(task.status === 'paused'){
+      P.uploadData[index].paused = !P.uploadData[index].paused;
+      P.uploadData[index].status = P.uploadData[index].paused ? 'paused' : 'uploading';
+    }
+  });
+  
+  //继续上传
+  uploadFile(resUploadData, 0, 2,{ index:0, concurrentNumber:2 });
 };
+
+const handleOffline = () => {
+  alert('网络已断开！');
+  // 把所有文件上传修改为暂停
+  P.uploadData.forEach((task,index) => {
+    if(task.status === 'uploading'){
+      P.uploadData[index].paused = !P.uploadData[index].paused;
+      P.uploadData[index].status = P.uploadData[index].paused ? 'paused' : 'uploading';
+    }
+  });
+
+};
+
 // 防止多次监听
 onMounted(() => {
+  // 添加监听
   window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
 });
 
 onUnmounted(() => {
+  // 清空map数组和resUploadData数组
+  map = [];
+  resUploadData = [];
+  
+  // 移除监听
   window.removeEventListener('online', handleOnline);
+  window.removeEventListener('offline', handleOffline);
 });
+
 
 
 
 
 
 // 上传文件
-let map:Array<{
-  name:string,
-  index:number,
-  hash:string
-}> = [];  //记录上传任务
+
+// 创建 AbortController 实例，用于取消请求
+/*****
+const controller = new AbortController();
+const signal = controller.signal;
+
+if(P.uploadData[id].status === 'error'){
+  // 取消请求
+  controller.abort();
+}
+*****/
+
 const uploadShards = (shards: any[],id:number, index:number = 0, concurrentNumber: number = 5) => {
   return new Promise((resolve,reject)=>{
-     // 并发请求
+    console.log("上传分片",index)
+    // 并发请求
     let response: Promise<any>[] = [];
     let loop = concurrentNumber >= shards.length ? shards.length : Math.min(index + concurrentNumber, shards.length);
     for(let i = index; i < loop; i++){
+      
+      // 判断是否暂停或取消
+      if(P.uploadData[id].status === 'paused' || P.uploadData[id].status === 'error'){ break; }
+
       const formData = new FormData();
       formData.append('start', shards[i].start.toString());
       formData.append('end', shards[i].end.toString());
       formData.append('index', shards[i].index.toString());
       formData.append('hash', shards[i].hash);
-      formData.append('blob', shards[i].blob);
       formData.append('name', shards[i].name);
+      formData.append('blob', shards[i].blob);//注意文件数据要在最后把其它文本字段放后面会导致multer引擎里面会读取不了
       
-      // response.push(axios.post('http://localhost:3001/upload', formData));
-      response.push(axios.get('http://localhost:3001/api/data'));
+      response.push(axios.post('http://localhost:3001/upload', formData));
+      // response.push(axios.get('http://localhost:3001/api/data'));
       
       // console.log(formData,index)
     }
+
     
-    Promise.all(response).then((_) => {
+    Promise.all(response).then(async (_) => {
+    
+      // 防止暂停或取消后，请求没有及时返回但是这个请求是暂停前发出去的所以这个也算是上传成功，这里让页面不动数据动
+      if(P.uploadData[id].status === 'uploading'){
+        // 更行上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
+        P.uploadData[id].progress = shards.length === 1 ? 50 : (index / shards.length * 100)-1;
+      }
       
-      // 更行上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
-      P.uploadData[id].progress = index / shards.length * 100;
       
       // console.log(index,loop)
       // 更新上传索引
       index = loop;
-
+      
       //记录文件名和最后一个上传的分片索引，和哈希值
       map[id] = { name:shards[0].name, index: shards[index-1].index, hash: shards[index-1].hash };
-
+      
+      
       // 上传下一个任务
       if(index < shards.length){
+      if(P.uploadData[id].status === 'uploading'){
         uploadShards(shards, id, index, concurrentNumber).then((result) => {
-            resolve(result); // 上传成功，解析Promise
+          resolve(result); // 上传成功，解析Promise
         })
         .catch((error) => {
-            reject(error); // 上传失败，拒绝Promise
+          reject(error); // 上传失败，拒绝Promise
         });
       }else{
+        // 在不需要上传的Promise抛出成功,不让外层用await造成长时间堵塞
+        resolve({id,name:shards[0].name});
+      }
+    }else{
+      
+      try {
+        await axios.post("http://localhost:3001/upload",map[id], {
+          params: {
+            option:"merge"
+          }
+        });
         // 更行上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
         P.uploadData[id].progress = index / shards.length * 100;
         // 更新成功状态
@@ -184,15 +277,30 @@ const uploadShards = (shards: any[],id:number, index:number = 0, concurrentNumbe
         
         resolve({id,name:shards[0].name}); 
         
+      } catch (err) {
+         // 更新失败状态
+        P.uploadData[id].status = 'error';
+        P.uploadData[id].errorMessage = '上传文件合成失败';
+        // 抛出失败的Promise
+        reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
       }
+
+      
+    }
+    
     }).catch((err) => {
-      // 更新失败状态
-      P.uploadData[id].status = 'error';
-      P.uploadData[id].errorMessage = '上传失败';
-      // 抛出失败的Promise
-      reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
+      if(P.uploadData[id].status === 'uploading'){
+        // 更新失败状态
+        P.uploadData[id].status = 'error';
+        P.uploadData[id].errorMessage = '上传失败';
+        // 抛出失败的Promise
+        reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
+      }else{
+        // 这是断网后所以Promise抛出成功,不让外层用await造成报错
+        resolve({id,name:shards[0].name});
+      }
     })
- 
+    
 
   })
   
@@ -211,13 +319,21 @@ const uploadFile = (
 ) => {
   return new Promise((resolve, reject) => {
     // 结构toConfigureShards配置项
-    const { index: subscript, concurrentNumber: current } = toConfigureShards;
+    let { index: subscript, concurrentNumber: current } = toConfigureShards;
 
     // 并发请求
     let respon: Promise<any>[] = [];
     let loop = currentNumber >= arr.length ? arr.length : Math.min(index + currentNumber, arr.length);
 
     for (let i = index; i < loop; i++) {
+      // 判断是否需要上传
+      if(P.uploadData[i].status === 'error' || P.uploadData[i].status === 'paused'){ continue; }
+
+      // 判断是否有保存的分片记录
+      if(map[i]){
+        subscript = map[i].index+1;
+      }
+
       //并发请求并发上传函数
       respon.push(uploadShards(arr[i], i, subscript, current));
       // console.log(respon)
@@ -247,6 +363,7 @@ const uploadFile = (
       reject(`文件数组上传失败，错误信息 :${err}`);
 
     })
+
   });
 
 };
@@ -264,18 +381,18 @@ watch(()=>P.uploadData.length, async ()=>{
   // console.log(P.uploadData)
 
 
-  Load.value = " ⚡⚡⚡加载中...";
+  Load.value = " ⚡⚡⚡处理中...";
   
   resUploadData = await cutFile(P.uploadData,6);
   Load.value = "";
   if(resUploadData.length === 0){
-    disabled.value = ":加载失败，请重试！";
+    disabled.value = ":处理失败，请重试！";
   }
   
   console.log("分片完成",resUploadData)
   
   try {
-    await uploadFile(resUploadData, 0, 2,{ index:0, concurrentNumber:2 });  //并发多文件上传文件
+    await uploadFile(resUploadData, 0, 2,{ index:0, concurrentNumber:2 });  //并发多文件上传文件，即使文件上传有暂停会跳过所以用await不会等待暂停上传的文件
     console.log("map",map)
   } catch (error) {
     // 抛出错误

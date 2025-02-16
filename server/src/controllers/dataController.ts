@@ -10,8 +10,10 @@ export const getData = async (req: Request, res: Response) => {
     const [rows] = await connection.execute('SELECT * FROM baoxiou');
     // 释放连接
     connection.release();
-    // 返回查询结果
-    res.json(rows);
+    // 返回查询结果,这里模拟一下延迟
+    setTimeout(()=>{
+      res.json(rows);// 返回查询结果
+    },Math.random()*1000);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: '内部服务器错误!' });

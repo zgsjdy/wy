@@ -5,57 +5,34 @@ import type { RouteRecordRaw } from "vue-router";
 // import Home from "../views/home.vue";
 // import home2 from "../views/home2.vue";
 
-
 // 使用 RouteRecordRaw 类型定义路由配置
 const routes: Array<RouteRecordRaw> = [
-    {
-        path: "/Home",
-        name: "Home",
-        component: () => import("../views/uploadLargeFiles.vue"), // 懒加载组件
-        props: true // 将路由参数作为 props 传递
-    },
-    {
-        path: "/Home2",
-        name: "hometo",
-        component: () => import("../views/home.vue"), // 懒加载组件
-        props: true // 将路由参数作为 props 传递
-    },
-    {
-        path: "/",
-        redirect: "/Home", // 重定向
-    }
+  {
+    path: "/uploadLargeFiles",
+    name: "uploadLargeFiles",
+    component: () => import("../views/uploadLargeFiles.vue"), // 懒加载组件
+    props: true, // 将路由参数作为 props 传递
+  },
+  {
+    path: "/other",
+    name: "other",
+    component: () => import("../views/other.vue"), // 懒加载组件
+    props: true, // 将路由参数作为 props 传递
+  },
+  {
+    path: "/",
+    redirect: "/uploadLargeFiles", // 重定向
+  },
 ];
 
-
 const router = createRouter({
-    history: createWebHistory(),  //使用html5 history模式(无#历史记录)
-    routes,
+  history: createWebHistory(), //使用html5 history模式(无#历史记录)
+  routes,
 });
 
-
-
 // 全局路由守卫（权限控制）
-router.beforeEach((to, _, next) => {
-    // console.log(to,"@@@")
-    const isAuthenticated = localStorage.getItem('token')
-    if (to.meta.requiresAuth && !isAuthenticated) {
-      next('/login') // 重定向到登录页
-    } else {
-      next()
-    }
-})
-
-
+router.beforeEach((to, from, next) => {
+  next();
+});
 
 export default router;
-
-
-
-
-
-
-
-
-
-
-

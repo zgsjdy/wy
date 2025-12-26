@@ -17,18 +17,18 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { getDatabaseInfo } from "../api/request";
 
 const data = ref<string>("");
 
 onMounted(() => {
-  fetch("http://localhost:3001/api/data")
-    .then((res) => res.text())
-    .then((response) => {
-      data.value = response;
+  getDatabaseInfo()
+    .then((res) => {
+      data.value = JSON.stringify(res, null, 2);
     })
     .catch((error) => {
-      console.error("Error:", error);
-      data.value = "Error loading data";
+      // 注意 响应拦截器 过滤掉一层错误对象
+      data.value = JSON.stringify(error.response, null, 2) || "Error: Failed to fetch data";
     });
 });
 </script>

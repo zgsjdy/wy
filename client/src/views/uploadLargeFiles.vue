@@ -51,15 +51,16 @@
 </template>
 
 <script lang="ts" setup>
+/* 部分代码绕弯路是为了用到各种技术 */
 import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
 import { cutFile } from "../utils/cutFile"; // 引入文件切片函数
-import axios from "axios"; // 引入 axios
+import { uploadFileChunk } from "../api/request"; // 引入 请求函数
 import { useStore } from "../stores/counter"; // 引入 pinia store
 const P = useStore(); // 使用 pinia store
 import { antiShake } from "../utils/antiShake"; // 引入公共防抖函数
 
 // 是否开启禁用上传状态展示区域
-let disabled = ref("");
+let disabled: Ref<string> = ref("");
 
 // 处理文件选择事件 input
 const handleFileSelect = (event: Event) => {
@@ -96,19 +97,26 @@ const handleDragleave = (e: DragEvent) => {
   (e.target as HTMLElement).style.backgroundColor = "";
 };
 
-// 处理文件拖拽事件
+// 处理文件拖拽松手事件，注意：必须同时阻止dragover和drop的默认行为才能实现自定义放置
 const handleDrop = (event: DragEvent) => {
   event.preventDefault();
   if (event.dataTransfer) {
-    const items = Array.from(event.dataTransfer.items);
+    const items = Array.from(event.dataTransfer.items); //事件运行完将无法读取值，所以需要转数组
     items.forEach((item) => {
-      const entry = item.webkitGetAsEntry();
+      const entry = item.webkitGetAsEntry(); //读取拖拽的文件,来确认是否是文件夹
       if (entry && entry.isDirectory) {
-        // alert("无法上传文件夹！")
+        console.log(
+          "%c isDirectory ::===>>> 文件夹将不做处理！",
+          `font-size:16px;
+           border-radius: 3px;
+           font-weight: bold;
+           background:#7cd7f7;
+           color:#8641d2;`
+        );
         return;
       }
 
-      const file = item.getAsFile();
+      const file = item.getAsFile(); //读取file
       if (file) {
         // 判断有无重复文件名（简单判断）
         const isDuplicate = P.uploadData.some((task) => task.name === file.name);
@@ -128,11 +136,12 @@ const handleDrop = (event: DragEvent) => {
   (event.target as HTMLElement).style.backgroundColor = "";
 };
 
+//记录上传任务
 let map: Array<{
   name: string;
   index: number;
   hash: string;
-}> = []; //记录上传任务
+}> = [];
 
 // 防抖函数，注意这个函数用到了全局变量
 const pauseUp = antiShake((index: number, thread: number) => {
@@ -172,16 +181,18 @@ const cancelUpload = (index: number) => {
 // 监听网络状态
 const handleOnline = () => {
   alert("已经恢复！");
+  let onePaused: number = -1;
   // 把所有文件上传修改为继续
   P.uploadData.forEach((task, index) => {
     if (task.status === "paused") {
       P.uploadData[index].paused = !P.uploadData[index].paused;
       P.uploadData[index].status = P.uploadData[index].paused ? "paused" : "uploading";
+      if (onePaused === -1) onePaused = index;
     }
   });
 
   //继续上传
-  uploadFile(resUploadData, 0, 2, { index: 0, concurrentNumber: 2 });
+  uploadFile(resUploadData, onePaused, 2, { index: 0, concurrentNumber: 2 });
 };
 
 const handleOffline = () => {
@@ -225,6 +236,15 @@ if(P.uploadData[id].status === 'error'){
 }
 *****/
 
+/**
+ * 单个文件并发请求上传文件分片，只是并发上传分片，上传完分片后，再请求合并分片，
+ * 文件上传状态只要不是"uploading"都会返回失败的Promise
+ * @param shards 分片数组数据，需要同一个文件的所有分片数据
+ * @param id 文件索引代表这个是第几个文件，需要判断当前文件是否需要上传 注意：用到了全局变量
+ * @param index 当前上传的分片索引
+ * @param concurrentNumber 并发上传数量
+ * @return Promise<any> 不是上传时候失败的比如断网会直接返回成功的Promise
+ */
 const uploadShards = (
   shards: any[],
   id: number,
@@ -232,6 +252,12 @@ const uploadShards = (
   concurrentNumber: number = 5
 ) => {
   return new Promise((resolve, reject) => {
+    if (P.uploadData[id].status !== "uploading") {
+      reject(
+        `文件上传状态不是 uploading ：id_${id},index_${index},name_${shards[0].name},errorMessage_${P.uploadData[id].errorMessage}`
+      );
+      return;
+    }
     console.log("上传分片", index);
     // 并发请求
     let response: Promise<any>[] = [];
@@ -239,12 +265,8 @@ const uploadShards = (
       concurrentNumber >= shards.length
         ? shards.length
         : Math.min(index + concurrentNumber, shards.length);
-    for (let i = index; i < loop; i++) {
-      // 判断是否暂停或取消
-      if (P.uploadData[id].status === "paused" || P.uploadData[id].status === "error") {
-        break;
-      }
 
+    for (let i = index; i < loop; i++) {
       const formData = new FormData();
       formData.append("start", shards[i].start.toString());
       formData.append("end", shards[i].end.toString());
@@ -253,17 +275,17 @@ const uploadShards = (
       formData.append("name", shards[i].name);
       formData.append("blob", shards[i].blob); //注意文件数据要在最后把其它文本字段放后面会导致multer引擎里面会读取不了
 
-      response.push(axios.post("http://localhost:3001/upload", formData));
-      // response.push(axios.get('http://localhost:3001/api/data'));
+      response.push(uploadFileChunk(formData));
 
       // console.log(formData,index)
     }
 
+    // 注意all传空数组会返回成功Promise
     Promise.all(response)
       .then(async (_) => {
         // 防止暂停或取消后，请求没有及时返回但是这个请求是暂停前发出去的所以这个也算是上传成功，这里让页面不动数据动
         if (P.uploadData[id].status === "uploading") {
-          // 更行上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
+          // 更新上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
           P.uploadData[id].progress = shards.length === 1 ? 50 : (index / shards.length) * 100 - 1;
         }
 
@@ -280,27 +302,23 @@ const uploadShards = (
 
         // 上传下一个任务
         if (index < shards.length) {
-          if (P.uploadData[id].status === "uploading") {
-            uploadShards(shards, id, index, concurrentNumber)
-              .then((result) => {
-                resolve(result); // 上传成功，解析Promise
-              })
-              .catch((error) => {
-                reject(error); // 上传失败，拒绝Promise
-              });
-          } else {
-            // 在不需要上传的Promise抛出成功,不让外层用await造成长时间堵塞
-            resolve({ id, name: shards[0].name });
-          }
+          uploadShards(shards, id, index, concurrentNumber)
+            .then((result) => {
+              resolve(result); // 上传成功，解析Promise
+            })
+            .catch((error) => {
+              reject(error); // 上传失败，拒绝Promise
+            });
         } else {
           try {
-            await axios.post("http://localhost:3001/upload", map[id], {
+            await uploadFileChunk(map[id], {
               params: {
                 option: "merge",
               },
             });
-            // 更行上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
-            P.uploadData[id].progress = (index / shards.length) * 100;
+            // 更新上传进度，因为返回的数组是根据下标插入的，所以顺序是一样的
+            P.uploadData[id].progress = 100;
+
             // 更新成功状态
             P.uploadData[id].status = "success";
 
@@ -310,26 +328,33 @@ const uploadShards = (
             P.uploadData[id].status = "error";
             P.uploadData[id].errorMessage = "上传文件合成失败";
             // 抛出失败的Promise
-            reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
+            reject(`文件上传合并失败id_${id},index_${index},name_${shards[0].name} :${err}`);
           }
         }
       })
       .catch((err) => {
+        // 这里判断状态是为了防止文件上传状态不对报错，暂停等情况，不修改页面状态为错误类型
         if (P.uploadData[id].status === "uploading") {
           // 更新失败状态
           P.uploadData[id].status = "error";
           P.uploadData[id].errorMessage = "上传失败";
-          // 抛出失败的Promise
-          reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
-        } else {
-          // 这是断网后所以Promise抛出成功,不让外层用await造成报错
-          resolve({ id, name: shards[0].name });
         }
+        // 抛出失败的Promise
+        reject(`文件上传失败id_${id},index_${index},name_${shards[0].name} :${err}`);
       });
   });
 };
 
-// 并发上传文件
+/**
+ * 并发上传文件，并发上传单文件，调用并发分片上传函数
+ * @param arr 文件数组数据 => 进行分片处理后的
+ * @param index 当前上传的文件索引
+ * @param currentNumber 并发上传文件数量
+ * @param toConfigureShards 并发分片上传函数，配置对象
+ * @param {number} [toConfigureShards.index] 当前上传的分片索引
+ * @param {number} [toConfigureShards.concurrentNumber] 并发上传数量
+ * @returns Promise<any>
+ */
 const uploadFile = (
   arr: Array<Array<{ start: number; end: number; index: number; hash: string; blob: Blob }>>,
   index: number = 0,
@@ -350,13 +375,14 @@ const uploadFile = (
 
     for (let i = index; i < loop; i++) {
       // 判断是否需要上传
-      if (P.uploadData[i].status === "error" || P.uploadData[i].status === "paused") {
+      if (P.uploadData[i].status !== "uploading") {
         continue;
       }
 
       // 判断是否有保存的分片记录
       if (map[i]) {
-        subscript = map[i].index + 1;
+        subscript = map[i].index + 1; //加一 下一个分片索引
+        if (subscript) console.warn(`有保存的分片记录，从${subscript}开始上传,不使用函数传入值`);
       }
 
       //并发请求并发上传函数
@@ -364,12 +390,13 @@ const uploadFile = (
       // console.log(respon)
     }
 
+    // 可用allSettled方法，代替all 这样有报错就不会中断了，但是兼容性不好 注意all传空数组会返回成功Promise
     Promise.all(respon)
       .then((res) => {
         // 记录上传成功的切片索引
         index = loop;
 
-        // 如果还有剩余的切片，继续上传
+        // 如果还有剩余的文件，继续上传
         if (index < arr.length) {
           uploadFile(arr, index, currentNumber, toConfigureShards)
             .then((result) => {
@@ -383,8 +410,24 @@ const uploadFile = (
         }
       })
       .catch((err) => {
-        // 抛出失败的Promise
-        reject(`文件数组上传失败，错误信息 :${err}`);
+        /* 兼容性较好的代替allSettled方法，这样有报错就不会中断了 */
+
+        // 跳过错误的并发文件，继续上传
+        index = loop;
+        console.warn(`跳过错误文件 ${index} 继续上传`);
+
+        // 如果还有剩余的文件，继续上传
+        if (index < arr.length) {
+          uploadFile(arr, index, currentNumber, toConfigureShards)
+            .then((result) => {
+              resolve(result); // 上传成功，解析Promise
+            })
+            .catch((error) => {
+              reject(error); // 上传失败，拒绝Promise
+            });
+        } else {
+          reject(`文件数组上传失败，错误信息 :${err}`);
+        }
       });
   });
 };
@@ -406,8 +449,10 @@ watch(
 
     resUploadData = await cutFile(P.uploadData, 6);
     Load.value = "";
-    if (resUploadData.length === 0) {
-      disabled.value = ":处理失败，请重试！";
+    if (resUploadData?.length === 0) {
+      // 处理失败，请重试！
+      disabled.value = "";
+      return;
     }
 
     console.log("分片完成", resUploadData);
@@ -419,7 +464,7 @@ watch(
     } catch (error) {
       // 抛出错误
       disabled.value = "";
-      throw new Error(`函数报错:${error}`);
+      console.error(`watch回调函数报错:${error}`);
     }
   }
 );
@@ -452,6 +497,7 @@ watch(
   border-radius: 5px;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
   overflow-y: scroll;
+  color: #fff;
 
   .drop-zone {
     transition: all 0.3s;
@@ -492,9 +538,12 @@ watch(
       .task-filename {
         font-size: 16px;
         font-weight: bold;
+        word-wrap: break-word;
+        word-break: break-all;
       }
 
       .task-actions {
+        // flex: 0 0 auto;
         display: flex;
 
         button {

@@ -62,7 +62,10 @@ export function cutFile(
 ): Promise<Array<Array<{ start: number; end: number; index: number; hash: string; blob: Blob }>>> {
   return new Promise((resolve) => {
     // 把响应式数据转换为普通数据
-    const F = toRaw(file); //线程通信时，不能传递响应式数据
+    const originalF = toRaw(file); //线程通信时，不能传递响应式数据
+
+    // 数据大小均分
+    const F = averageFile(originalF);
 
     const THREAD_COUNT: number = navigator.hardwareConcurrency || 4; // 线程数量
     const CHUNK_SIZE: number = 1024 * 1024 * chunkSize; // 每个分片的大小(单位mb)
@@ -107,4 +110,31 @@ export function cutFile(
       };
     }
   });
+}
+
+/**
+ * 数组按照指定字段大小进行平均分，让大的数据尽量分开而不是扎堆
+ * * @param {Array} file - 要平分的文件数组。
+ * * @returns {Array} - 返回一个新的平分好的数组。
+ */
+function averageFile(file: Array<any>): Array<any> {
+  // 注意这里不要动原本数据会有值引用也就是变量存的是地址不是值,toRaw返回根据一个 Vue 创建的代理返回其原始对象。
+  const raw = [...file];
+  const result: Array<any> = [];
+
+  raw.sort((a, b) => a.file.size - b.file.size); // 数组排序，按照文件大小进行排序，小的在前面，大的在后面
+
+  let valueRetrieval: "Left" | "Right" = "Right";
+
+  while (raw.length > 0) {
+    if (valueRetrieval === "Left") {
+      result.push(raw.shift()); // 从数组左侧取出一个元素
+      valueRetrieval = "Right";
+    } else {
+      result.push(raw.pop()); // 从数组右侧取出一个元素
+      valueRetrieval = "Left";
+    }
+  }
+
+  return result;
 }
